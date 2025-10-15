@@ -2,6 +2,7 @@ library(tidyverse)
 library(tidymodels)
 library(vroom)
 library(embed)
+library(glmnet)
 
 ## Read in Training Data
 
@@ -33,40 +34,111 @@ testData <- vroom('test.csv')
 
 #####
 
-## Recipe
+## Recipe with Dummy Variables
 
-amazon_recipe <- recipe(ACTION ~ ., data = trainData) %>%
+# amazon_recipe <- recipe(ACTION ~ ., data = trainData) %>%
+#   step_mutate_at(all_numeric_predictors(), fn = factor) %>% 
+#   step_other(all_factor_predictors(), threshold = 0.001) %>%
+#   step_dummy(all_factor_predictors())
+# 
+# prep <- prep(amazon_recipe)
+# baked <- bake(prep, new_data = trainData)
+
+#####
+
+## Recipe with Target Encoding
+
+target_recipe <- recipe(ACTION ~ ., data = trainData) %>%
   step_mutate_at(all_numeric_predictors(), fn = factor) %>% 
   step_other(all_factor_predictors(), threshold = 0.001) %>%
-  step_dummy(all_factor_predictors())
+  step_lencode_mixed(all_factor_predictors(), outcome = vars(ACTION)) %>%
+  step_normalize(all_factor_predictors())
 
-prep <- prep(amazon_recipe)
-baked <- bake(prep, new_data = trainData)
+target_prep <- prep(target_recipe)
+bake(target_prep, new_data = trainData)
 
-## Logistic Regression Model
+#####
 
-log_reg_model <- logistic_reg() %>%
-  set_engine("glm")
+# ## Logistic Regression Model
+# 
+# log_reg_model <- logistic_reg() %>%
+#   set_engine("glm")
+# 
+# ### Workflow
+# 
+# log_reg_workflow <- workflow() %>%
+#   add_recipe(amazon_recipe) %>%
+#   add_model(log_reg_model) %>%
+#   fit(data=trainData)
+# 
+# ### Predictions
+# 
+# log_reg_predictions <- predict(log_reg_workflow,
+#                                new_data=testData,
+#                                type="prob")
+# 
+# ### Kaggle
+# 
+# log_reg_kaggle_submission <- log_reg_predictions %>%
+#   bind_cols(., testData) %>%
+#   select(id, .pred_1) %>% 
+#   rename(Action=.pred_1) %>%
+#   rename(Id=id)
+# 
+# vroom_write(x=log_reg_kaggle_submission, file="./LogRegPreds.csv", delim=',')
 
-### Workflow
+#####
 
-log_reg_workflow <- workflow() %>%
-  add_recipe(amazon_recipe) %>%
-  add_model(log_reg_model) %>%
+### Penalized Logistic Regression
+
+preg_mod <- logistic_reg(mixture=tune(), penalty=tune()) %>%
+  set_engine("glmnet")
+
+preg_workflow <- workflow() %>%
+  add_recipe(target_recipe) %>%
+  add_model(preg_mod)
+
+### Grid of values to tune over
+
+tuning_grid <- grid_regular(penalty(),
+                            mixture(),
+                            levels = 5)
+
+### Split data for CV
+
+folds <- vfold_cv(trainData, v = 5, repeats = 1)
+
+### Run the CV
+
+CV_results <- preg_workflow %>%
+  tune_grid(resamples=folds,
+            grid=tuning_grid,
+            metrics(metric_set(roc_auc)))
+
+### Find Best Tuning Parameters
+
+bestTune <- CV_results %>%
+  select_best(metric="roc_auc")
+print(bestTune)
+
+### Finalize the Workflow & fit it
+
+final_wf <-
+  preg_workflow %>%
+  finalize_workflow(bestTune) %>%
   fit(data=trainData)
 
-### Predictions
+### Predict
 
-log_reg_predictions <- predict(log_reg_workflow,
-                               new_data=testData,
-                               type="prob")
+pen_reg_predictions <- final_wf %>%
+  predict(new_data = testData, type="prob")
 
 ### Kaggle
 
-log_reg_kaggle_submission <- log_reg_predictions %>%
+pen_reg_kaggle_submission <- pen_reg_predictions %>%
   bind_cols(., testData) %>%
   select(id, .pred_1) %>% 
   rename(Action=.pred_1) %>%
   rename(Id=id)
 
-vroom_write(x=log_reg_kaggle_submission, file="./LogRegPreds.csv", delim=',')
+vroom_write(x=pen_reg_kaggle_submission, file="./PenRegPreds.csv", delim=',')
