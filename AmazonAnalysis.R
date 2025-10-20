@@ -3,6 +3,7 @@ library(tidymodels)
 library(vroom)
 library(embed)
 library(glmnet)
+library(rpart)
 
 ## Read in Training Data
 
@@ -89,56 +90,114 @@ bake(target_prep, new_data = trainData)
 
 #####
 
-### Penalized Logistic Regression
+#####
 
-preg_mod <- logistic_reg(mixture=tune(), penalty=tune()) %>%
-  set_engine("glmnet")
+# ## Penalized Logistic Regression
+# 
+# preg_mod <- logistic_reg(mixture=tune(), penalty=tune()) %>%
+#   set_engine("glmnet")
+# 
+# preg_workflow <- workflow() %>%
+#   add_recipe(target_recipe) %>%
+#   add_model(preg_mod)
+# 
+# ### Grid of values to tune over
+# 
+# tuning_grid <- grid_regular(penalty(),
+#                             mixture(),
+#                             levels = 5)
+# 
+# ### Split data for CV
+# 
+# folds <- vfold_cv(trainData, v = 5, repeats = 1)
+# 
+# ### Run the CV
+# 
+# CV_results <- preg_workflow %>%
+#   tune_grid(resamples=folds,
+#             grid=tuning_grid,
+#             metrics(metric_set(roc_auc)))
+# 
+# ### Find Best Tuning Parameters
+# 
+# bestTune <- CV_results %>%
+#   select_best(metric="roc_auc")
+# print(bestTune)
+# 
+# ### Finalize the Workflow & fit it
+# 
+# final_wf <-
+#   preg_workflow %>%
+#   finalize_workflow(bestTune) %>%
+#   fit(data=trainData)
+# 
+# ### Predict
+# 
+# pen_reg_predictions <- final_wf %>%
+#   predict(new_data = testData, type="prob")
+# 
+# ### Kaggle
+# 
+# pen_reg_kaggle_submission <- pen_reg_predictions %>%
+#   bind_cols(., testData) %>%
+#   select(id, .pred_1) %>% 
+#   rename(Action=.pred_1) %>%
+#   rename(Id=id)
+# 
+# vroom_write(x=pen_reg_kaggle_submission, file="./PenRegPreds.csv", delim=',')
 
-preg_workflow <- workflow() %>%
+#####
+
+## Regression Trees
+
+tree_mod <- rand_forest(mtry=tune(),
+                        min_n=tune(),
+                        trees=500) %>%
+  set_engine("ranger") %>%
+  set_mode("classification")
+
+tree_workflow <- workflow() %>%
   add_recipe(target_recipe) %>%
-  add_model(preg_mod)
+  add_model(tree_mod)
 
 ### Grid of values to tune over
 
-tuning_grid <- grid_regular(penalty(),
-                            mixture(),
-                            levels = 5)
-
-### Split data for CV
-
+tuning_grid <- grid_regular(mtry(range=c(1,9)),
+                            min_n(),
+                            levels=5)
+  
+### CV
+  
 folds <- vfold_cv(trainData, v = 5, repeats = 1)
 
-### Run the CV
-
-CV_results <- preg_workflow %>%
+CV_results <- tree_workflow %>%
   tune_grid(resamples=folds,
             grid=tuning_grid,
             metrics(metric_set(roc_auc)))
 
-### Find Best Tuning Parameters
+### Find best tuning parameters
 
 bestTune <- CV_results %>%
   select_best(metric="roc_auc")
-print(bestTune)
 
-### Finalize the Workflow & fit it
+### Finalize workflow
 
 final_wf <-
-  preg_workflow %>%
+  tree_workflow %>%
   finalize_workflow(bestTune) %>%
   fit(data=trainData)
 
 ### Predict
 
-pen_reg_predictions <- final_wf %>%
+tree_predictions <- final_wf %>%
   predict(new_data = testData, type="prob")
 
 ### Kaggle
 
-pen_reg_kaggle_submission <- pen_reg_predictions %>%
+tree_kaggle_submission <- tree_predictions %>%
   bind_cols(., testData) %>%
   select(id, .pred_1) %>% 
   rename(Action=.pred_1) %>%
   rename(Id=id)
 
-vroom_write(x=pen_reg_kaggle_submission, file="./PenRegPreds.csv", delim=',')
+vroom_write(x=tree_kaggle_submission, file="./RegTreePreds.csv", delim=',')
