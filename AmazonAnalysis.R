@@ -4,6 +4,7 @@ library(vroom)
 library(embed)
 library(glmnet)
 library(rpart)
+library(kknn)
 
 ## Read in Training Data
 
@@ -60,7 +61,7 @@ bake(target_prep, new_data = trainData)
 
 #####
 
-# ## Logistic Regression Model
+# ## Logistic Regression Model - Score: 0.80913
 # 
 # log_reg_model <- logistic_reg() %>%
 #   set_engine("glm")
@@ -92,7 +93,7 @@ bake(target_prep, new_data = trainData)
 
 #####
 
-# ## Penalized Logistic Regression
+# ## Penalized Logistic Regression - Score: 0.78320
 # 
 # preg_mod <- logistic_reg(mixture=tune(), penalty=tune()) %>%
 #   set_engine("glmnet")
@@ -148,56 +149,110 @@ bake(target_prep, new_data = trainData)
 
 #####
 
-## Regression Trees
+#####
 
-tree_mod <- rand_forest(mtry=tune(),
-                        min_n=tune(),
-                        trees=500) %>%
-  set_engine("ranger") %>%
-  set_mode("classification")
+# ## Regression Trees - Score: 0.87309
+# 
+# tree_mod <- rand_forest(mtry=tune(),
+#                         min_n=tune(),
+#                         trees=500) %>%
+#   set_engine("ranger") %>%
+#   set_mode("classification")
+# 
+# tree_workflow <- workflow() %>%
+#   add_recipe(target_recipe) %>%
+#   add_model(tree_mod)
+# 
+# ### Grid of values to tune over
+# 
+# tuning_grid <- grid_regular(mtry(range=c(1,9)),
+#                             min_n(),
+#                             levels=5)
+#   
+# ### CV
+#   
+# folds <- vfold_cv(trainData, v = 5, repeats = 1)
+# 
+# CV_results <- tree_workflow %>%
+#   tune_grid(resamples=folds,
+#             grid=tuning_grid,
+#             metrics(metric_set(roc_auc)))
+# 
+# ### Find best tuning parameters
+# 
+# bestTune <- CV_results %>%
+#   select_best(metric="roc_auc")
+# 
+# ### Finalize workflow
+# 
+# final_wf <-
+#   tree_workflow %>%
+#   finalize_workflow(bestTune) %>%
+#   fit(data=trainData)
+# 
+# ### Predict
+# 
+# tree_predictions <- final_wf %>%
+#   predict(new_data = testData, type="prob")
+# 
+# ### Kaggle
+# 
+# tree_kaggle_submission <- tree_predictions %>%
+#   bind_cols(., testData) %>%
+#   select(id, .pred_1) %>% 
+#   rename(Action=.pred_1) %>%
+#   rename(Id=id)
+# 
+# vroom_write(x=tree_kaggle_submission, file="./RegTreePreds.csv", delim=',')
 
-tree_workflow <- workflow() %>%
+#####
+
+## K-Nearest Neighbors - Score: 0.80905
+
+knn_model <- nearest_neighbor(neighbors=tune()) %>%
+  set_mode("classification") %>%
+  set_engine("kknn")
+
+knn_workflow <- workflow() %>%
   add_recipe(target_recipe) %>%
-  add_model(tree_mod)
+  add_model(knn_model)
 
-### Grid of values to tune over
+### Tuning Parameters
 
-tuning_grid <- grid_regular(mtry(range=c(1,9)),
-                            min_n(),
-                            levels=5)
-  
+tuning_grid <- grid_regular(neighbors())
+
 ### CV
-  
+
 folds <- vfold_cv(trainData, v = 5, repeats = 1)
 
-CV_results <- tree_workflow %>%
+CV_results <- knn_workflow %>%
   tune_grid(resamples=folds,
             grid=tuning_grid,
             metrics(metric_set(roc_auc)))
 
-### Find best tuning parameters
+### Find best K
 
 bestTune <- CV_results %>%
   select_best(metric="roc_auc")
 
-### Finalize workflow
+### Finalize Workflow
 
 final_wf <-
-  tree_workflow %>%
+  knn_workflow %>%
   finalize_workflow(bestTune) %>%
   fit(data=trainData)
 
 ### Predict
 
-tree_predictions <- final_wf %>%
-  predict(new_data = testData, type="prob")
+knn_predictions <- final_wf %>%
+  predict(knn_workflow, new_data=testData, type="prob")
 
 ### Kaggle
 
-tree_kaggle_submission <- tree_predictions %>%
+knn_kaggle_submission <- knn_predictions %>%
   bind_cols(., testData) %>%
   select(id, .pred_1) %>% 
   rename(Action=.pred_1) %>%
   rename(Id=id)
 
-vroom_write(x=tree_kaggle_submission, file="./RegTreePreds.csv", delim=',')
+vroom_write(x=knn_kaggle_submission, file="./KNNTreePreds.csv", delim=',')
