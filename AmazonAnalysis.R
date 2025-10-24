@@ -265,55 +265,123 @@ bake(target_prep, new_data = trainData)
 ## Naive Bayes - Score: 0.75864
 #####
 
-library(discrim)
-library(naivebayes)
+# library(discrim)
+# library(naivebayes)
+# 
+# nb_model <- naive_Bayes(Laplace=tune(), smoothness=tune()) %>%
+#   set_mode("classification") %>%
+#   set_engine("naivebayes")
+# 
+# nb_workflow <- workflow() %>%
+#   add_recipe(target_recipe) %>%
+#   add_model(nb_model)
+# 
+# ### Grid of values to tune over
+# 
+# tuning_grid <- grid_regular(Laplace(),
+#                             smoothness(),
+#                             levels=5)
+# 
+# ### CV
+# 
+# folds <- vfold_cv(trainData, v = 5, repeats = 1)
+# 
+# CV_results <- nb_workflow %>%
+#   tune_grid(resamples=folds,
+#             grid=tuning_grid,
+#             metrics(metric_set(roc_auc)))
+# 
+# ### Find best tuning parameters
+# 
+# bestTune <- CV_results %>%
+#   select_best(metric="roc_auc")
+# 
+# ### Finalize Workflow
+# 
+# final_wf <-
+#   nb_workflow %>%
+#   finalize_workflow(bestTune) %>%
+#   fit(data=trainData)
+# 
+# ### Predict
+# 
+# nb_predictions <- final_wf %>%
+#   predict(nb_workflow, new_data=testData, type="prob")
+# 
+# ### Kaggle
+# 
+# nb_kaggle_submission <- nb_predictions %>%
+#   bind_cols(., testData) %>%
+#   select(id, .pred_1) %>% 
+#   rename(Action=.pred_1) %>%
+#   rename(Id=id)
+# 
+# vroom_write(x=nb_kaggle_submission, file="./NBTreePreds.csv", delim=',')
+#
+#####
 
-nb_model <- naive_Bayes(Laplace=tune(), smoothness=tune()) %>%
-  set_mode("classification") %>%
-  set_engine("naivebayes")
+## Trying an MLP (Neural Networks)
 
-nb_workflow <- workflow() %>%
-  add_recipe(target_recipe) %>%
-  add_model(nb_model)
+### Installing Packages
 
-### Grid of values to tune over
+install.packages("remotes")
+remotes::install_github("rstudio/tensorflow")
 
-tuning_grid <- grid_regular(Laplace(),
-                            smoothness(),
+reticulate::install_python()
+
+keras::install_keras()
+
+### New Recipe
+
+nn_recipe <- recipe(ACTION ~ ., data = trainData) %>%
+  update_role(MGR_ID, new_role="id") %>%
+  step_mutate_at(all_numeric_predictors(), fn = factor) %>% 
+  step_other(all_factor_predictors(), threshold = 0.001) %>%
+  step_lencode_mixed(all_factor_predictors(), outcome = vars(ACTION)) %>%
+  step_normalize(all_factor_predictors()) %>%
+  step_range(all_numeric_predictors(), min=0, max=1)
+
+nn_prep <- prep(nn_recipe)
+bake(nn_prep, new_data = trainData)
+
+### Neural Network Model
+
+nn_model <- mlp(hidden_units = tune(),
+                epochs = 50) %>%
+  set_engine("keras") %>%
+  set_mode("classification")
+
+nn_workflow <- workflow() %>%
+  add_recipe(nn_recipe) %>%
+  add_model(nn_model)
+
+### Tuning
+
+nn_tuneGrid <- grid_regular(hidden_units(range=c(1, 50)),
                             levels=5)
-
-### CV
 
 folds <- vfold_cv(trainData, v = 5, repeats = 1)
 
-CV_results <- nb_workflow %>%
+CV_results <- nn_workflow %>%
   tune_grid(resamples=folds,
-            grid=tuning_grid,
+            grid=nn_tuneGrid,
             metrics(metric_set(roc_auc)))
-
-### Find best tuning parameters
 
 bestTune <- CV_results %>%
   select_best(metric="roc_auc")
 
-### Finalize Workflow
-
 final_wf <-
-  nb_workflow %>%
+  nn_workflow %>%
   finalize_workflow(bestTune) %>%
   fit(data=trainData)
 
 ### Predict
 
-nb_predictions <- final_wf %>%
-  predict(nb_workflow, new_data=testData, type="prob")
+nn_predictions <- final_wf %>%
+  predict(nn_workflow, new_data=testData, type="prob")
 
-### Kaggle
+### Graph of CV
 
-nb_kaggle_submission <- nb_predictions %>%
-  bind_cols(., testData) %>%
-  select(id, .pred_1) %>% 
-  rename(Action=.pred_1) %>%
-  rename(Id=id)
-
-vroom_write(x=nb_kaggle_submission, file="./NBTreePreds.csv", delim=',')
+CV_results %>% collect_metrics() %>%
+  filter(.metric=="roc_auc") %>%
+  ggplot(aes(x=hidden_units, y=mean)) + geom_line()
