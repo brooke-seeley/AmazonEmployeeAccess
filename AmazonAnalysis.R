@@ -60,16 +60,32 @@ testData <- vroom('test.csv')
 #####
 
 ## Recipe with PCA
+#####
+# 
+# pca_recipe <- recipe(ACTION ~ ., data = trainData) %>%
+#   step_mutate_at(all_numeric_predictors(), fn = factor) %>% 
+#   step_other(all_factor_predictors(), threshold = 0.001) %>%
+#   step_dummy(all_factor_predictors()) %>%
+#   step_normalize(all_factor_predictors()) %>%
+#   step_pca(all_predictors(), threshold=0.8)
+# 
+# pca_prep <- prep(pca_recipe)
+# bake(pca_prep, new_data = trainData)
+#
+#####
 
-pca_recipe <- recipe(ACTION ~ ., data = trainData) %>%
-  step_mutate_at(all_numeric_predictors(), fn = factor) %>% 
+## Recipe with SMOTE
+
+library(themis)
+
+smote_recipe <- recipe(ACTION ~ ., data = trainData) %>%
+  step_mutate_at(all_numeric_predictors(), fn = factor) %>%
   step_other(all_factor_predictors(), threshold = 0.001) %>%
   step_dummy(all_factor_predictors()) %>%
-  step_normalize(all_factor_predictors()) %>%
-  step_pca(all_predictors(), threshold=0.8)
+  step_smote(all_outcomes(), neighbors=10)
 
-pca_prep <- prep(pca_recipe)
-bake(pca_prep, new_data = trainData)
+smote_prep <- prep(smote_recipe)
+bake(smote_prep, new_data = trainData)
 
 ## Logistic Regression Model - Score: 0.80913, w/ PCA: 0.77040
 #####
@@ -170,69 +186,75 @@ bake(pca_prep, new_data = trainData)
 #
 #####
 
-## Regression Trees - Score: 0.87309, w/ PCA: 0.84514
+## Regression Trees - Score: 0.87309, w/ PCA: 0.84514, w/ SMOTE: 0.81990
 #####
-# 
-# library(rpart)
-# 
-# tree_mod <- rand_forest(mtry=tune(),
-#                         min_n=tune(),
-#                         trees=500) %>%
-#   set_engine("ranger") %>%
-#   set_mode("classification")
-# 
-# # tree_workflow <- workflow() %>%
-# #   add_recipe(target_recipe) %>%
-# #   add_model(tree_mod)
-# 
+
+library(rpart)
+
+tree_mod <- rand_forest(mtry=tune(),
+                        min_n=tune(),
+                        trees=500) %>%
+  set_engine("ranger") %>%
+  set_mode("classification")
+
+# tree_workflow <- workflow() %>%
+#   add_recipe(target_recipe) %>%
+#   add_model(tree_mod)
+
 # tree_workflow <- workflow() %>%
 #   add_recipe(pca_recipe) %>%
 #   add_model(tree_mod)
-# 
-# ### Grid of values to tune over
-# 
-# tuning_grid <- grid_regular(mtry(range=c(1,9)),
-#                             min_n(),
-#                             levels=5)
-# 
-# ### CV
-# 
-# folds <- vfold_cv(trainData, v = 5, repeats = 1)
-# 
-# CV_results <- tree_workflow %>%
-#   tune_grid(resamples=folds,
-#             grid=tuning_grid,
-#             metrics(metric_set(roc_auc)))
-# 
-# ### Find best tuning parameters
-# 
-# bestTune <- CV_results %>%
-#   select_best(metric="roc_auc")
-# 
-# ### Finalize workflow
-# 
-# final_wf <-
-#   tree_workflow %>%
-#   finalize_workflow(bestTune) %>%
-#   fit(data=trainData)
-# 
-# ### Predict
-# 
-# tree_predictions <- final_wf %>%
-#   predict(new_data = testData, type="prob")
-# 
-# ### Kaggle
-# 
-# tree_kaggle_submission <- tree_predictions %>%
-#   bind_cols(., testData) %>%
-#   select(id, .pred_1) %>%
-#   rename(Action=.pred_1) %>%
-#   rename(Id=id)
-# 
-# # vroom_write(x=tree_kaggle_submission, file="./RegTreePreds.csv", delim=',')
-# 
+
+tree_workflow <- workflow() %>%
+  add_recipe(smote_recipe) %>%
+  add_model(tree_mod)
+
+### Grid of values to tune over
+
+tuning_grid <- grid_regular(mtry(range=c(1,9)),
+                            min_n(),
+                            levels=5)
+
+### CV
+
+folds <- vfold_cv(trainData, v = 5, repeats = 1)
+
+CV_results <- tree_workflow %>%
+  tune_grid(resamples=folds,
+            grid=tuning_grid,
+            metrics(metric_set(roc_auc)))
+
+### Find best tuning parameters
+
+bestTune <- CV_results %>%
+  select_best(metric="roc_auc")
+
+### Finalize workflow
+
+final_wf <-
+  tree_workflow %>%
+  finalize_workflow(bestTune) %>%
+  fit(data=trainData)
+
+### Predict
+
+tree_predictions <- final_wf %>%
+  predict(new_data = testData, type="prob")
+
+### Kaggle
+
+tree_kaggle_submission <- tree_predictions %>%
+  bind_cols(., testData) %>%
+  select(id, .pred_1) %>%
+  rename(Action=.pred_1) %>%
+  rename(Id=id)
+
+# vroom_write(x=tree_kaggle_submission, file="./RegTreePreds.csv", delim=',')
+
 # vroom_write(x=tree_kaggle_submission, file="./PCARegTreePreds.csv", delim=',')
-# 
+
+vroom_write(x=tree_kaggle_submission, file="./SMOTERegTreePreds.csv", delim=',')
+
 #####
 
 ## K-Nearest Neighbors - Score: 0.80905, w/ PCA: 0.80533
@@ -425,88 +447,88 @@ bake(pca_prep, new_data = trainData)
 
 ## Support Vector Machines - Best Score - Radial: 0.61423
 
-library(kernlab)
+## library(kernlab)
 
 ### Linear - Score: 0.56039
 #####
-
-svmLinear <- svm_linear(cost = 0.0131) %>%
-  set_mode("classification") %>%
-  set_engine("kernlab")
-
-linear_workflow <- workflow() %>%
-  add_recipe(pca_recipe) %>%
-  add_model(svmLinear) %>%
-  fit(data=trainData)
-
-#### Predict
-
-linear_predictions <- predict(linear_workflow, new_data=testData, type="prob")
-
-#### Kaggle
-
-linear_kaggle_submission <- linear_predictions %>%
-  bind_cols(., testData) %>%
-  select(id, .pred_1) %>%
-  rename(Action=.pred_1) %>%
-  rename(Id=id)
-
-vroom_write(x=linear_kaggle_submission, file="./LinearSVMPreds.csv", delim=',')
-
+# 
+# svmLinear <- svm_linear(cost = 0.0131) %>%
+#   set_mode("classification") %>%
+#   set_engine("kernlab")
+# 
+# linear_workflow <- workflow() %>%
+#   add_recipe(pca_recipe) %>%
+#   add_model(svmLinear) %>%
+#   fit(data=trainData)
+# 
+# #### Predict
+# 
+# linear_predictions <- predict(linear_workflow, new_data=testData, type="prob")
+# 
+# #### Kaggle
+# 
+# linear_kaggle_submission <- linear_predictions %>%
+#   bind_cols(., testData) %>%
+#   select(id, .pred_1) %>%
+#   rename(Action=.pred_1) %>%
+#   rename(Id=id)
+# 
+# vroom_write(x=linear_kaggle_submission, file="./LinearSVMPreds.csv", delim=',')
+#
 #####
 
 ### Polynomial - Score: 0.56037
 #####
-
-svmPoly <- svm_poly(degree = 1, cost = 0.0131) %>%
-  set_mode("classification") %>%
-  set_engine("kernlab")
-
-poly_workflow <- workflow() %>%
-  add_recipe(pca_recipe) %>%
-  add_model(svmPoly) %>%
-  fit(data=trainData)
-
-#### Predict
-
-poly_predictions <- predict(poly_workflow, new_data=testData, type="prob")
-
-#### Kaggle
-
-poly_kaggle_submission <- poly_predictions %>%
-  bind_cols(., testData) %>%
-  select(id, .pred_1) %>%
-  rename(Action=.pred_1) %>%
-  rename(Id=id)
-
-vroom_write(x=poly_kaggle_submission, file="./PolySVMPreds.csv", delim=',')
-
+# 
+# svmPoly <- svm_poly(degree = 1, cost = 0.0131) %>%
+#   set_mode("classification") %>%
+#   set_engine("kernlab")
+# 
+# poly_workflow <- workflow() %>%
+#   add_recipe(pca_recipe) %>%
+#   add_model(svmPoly) %>%
+#   fit(data=trainData)
+# 
+# #### Predict
+# 
+# poly_predictions <- predict(poly_workflow, new_data=testData, type="prob")
+# 
+# #### Kaggle
+# 
+# poly_kaggle_submission <- poly_predictions %>%
+#   bind_cols(., testData) %>%
+#   select(id, .pred_1) %>%
+#   rename(Action=.pred_1) %>%
+#   rename(Id=id)
+# 
+# vroom_write(x=poly_kaggle_submission, file="./PolySVMPreds.csv", delim=',')
+#
 #####
 
 ### Radial - Score: 0.61423
 #####
-
-svmRadial <- svm_rbf(rbf_sigma = 0.177, cost = 0.00316) %>%
-  set_mode("classification") %>%
-  set_engine("kernlab")
-
-rad_workflow <- workflow() %>%
-  add_recipe(pca_recipe) %>%
-  add_model(svmRadial) %>%
-  fit(data=trainData)
-
-#### Predict
-
-rad_predictions <- predict(rad_workflow, new_data=testData, type="prob")
-
-#### Kaggle
-
-rad_kaggle_submission <- rad_predictions %>%
-  bind_cols(., testData) %>%
-  select(id, .pred_1) %>%
-  rename(Action=.pred_1) %>%
-  rename(Id=id)
-
-vroom_write(x=rad_kaggle_submission, file="./RadialSVMPreds.csv", delim=',')
-
+# 
+# svmRadial <- svm_rbf(rbf_sigma = 0.177, cost = 0.00316) %>%
+#   set_mode("classification") %>%
+#   set_engine("kernlab")
+# 
+# rad_workflow <- workflow() %>%
+#   add_recipe(pca_recipe) %>%
+#   add_model(svmRadial) %>%
+#   fit(data=trainData)
+# 
+# #### Predict
+# 
+# rad_predictions <- predict(rad_workflow, new_data=testData, type="prob")
+# 
+# #### Kaggle
+# 
+# rad_kaggle_submission <- rad_predictions %>%
+#   bind_cols(., testData) %>%
+#   select(id, .pred_1) %>%
+#   rename(Action=.pred_1) %>%
+#   rename(Id=id)
+# 
+# vroom_write(x=rad_kaggle_submission, file="./RadialSVMPreds.csv", delim=',')
+#
 #####
