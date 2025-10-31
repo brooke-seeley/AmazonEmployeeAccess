@@ -66,49 +66,49 @@ pca_recipe <- recipe(ACTION ~ ., data = trainData) %>%
   step_other(all_factor_predictors(), threshold = 0.001) %>%
   step_dummy(all_factor_predictors()) %>%
   step_normalize(all_factor_predictors()) %>%
-  step_pca(all_predictors(), threshold=0.9)
+  step_pca(all_predictors(), threshold=0.8)
 
 pca_prep <- prep(pca_recipe)
 bake(pca_prep, new_data = trainData)
 
 ## Logistic Regression Model - Score: 0.80913, w/ PCA: 0.77040
 #####
-
-library(glmnet)
-
-log_reg_model <- logistic_reg() %>%
-  set_engine("glm")
-
-### Workflow
-
+# 
+# library(glmnet)
+# 
+# log_reg_model <- logistic_reg() %>%
+#   set_engine("glm")
+# 
+# ### Workflow
+# 
+# # log_reg_workflow <- workflow() %>%
+# #   add_recipe(amazon_recipe) %>%
+# #   add_model(log_reg_model) %>%
+# #   fit(data=trainData)
+# 
 # log_reg_workflow <- workflow() %>%
-#   add_recipe(amazon_recipe) %>%
+#   add_recipe(pca_recipe) %>%
 #   add_model(log_reg_model) %>%
 #   fit(data=trainData)
-
-log_reg_workflow <- workflow() %>%
-  add_recipe(pca_recipe) %>%
-  add_model(log_reg_model) %>%
-  fit(data=trainData)
-
-### Predictions
-
-log_reg_predictions <- predict(log_reg_workflow,
-                               new_data=testData,
-                               type="prob")
-
-### Kaggle
-
-log_reg_kaggle_submission <- log_reg_predictions %>%
-  bind_cols(., testData) %>%
-  select(id, .pred_1) %>%
-  rename(Action=.pred_1) %>%
-  rename(Id=id)
-
-# vroom_write(x=log_reg_kaggle_submission, file="./LogRegPreds.csv", delim=',')
-
-vroom_write(x=log_reg_kaggle_submission, file="./PCALogRegPreds.csv", delim=',')
-
+# 
+# ### Predictions
+# 
+# log_reg_predictions <- predict(log_reg_workflow,
+#                                new_data=testData,
+#                                type="prob")
+# 
+# ### Kaggle
+# 
+# log_reg_kaggle_submission <- log_reg_predictions %>%
+#   bind_cols(., testData) %>%
+#   select(id, .pred_1) %>%
+#   rename(Action=.pred_1) %>%
+#   rename(Id=id)
+# 
+# # vroom_write(x=log_reg_kaggle_submission, file="./LogRegPreds.csv", delim=',')
+# 
+# vroom_write(x=log_reg_kaggle_submission, file="./PCALogRegPreds.csv", delim=',')
+# 
 #####
 
 ## Penalized Logistic Regression - Score: 0.78320 
@@ -172,128 +172,128 @@ vroom_write(x=log_reg_kaggle_submission, file="./PCALogRegPreds.csv", delim=',')
 
 ## Regression Trees - Score: 0.87309, w/ PCA: 0.84514
 #####
-
-library(rpart)
-
-tree_mod <- rand_forest(mtry=tune(),
-                        min_n=tune(),
-                        trees=500) %>%
-  set_engine("ranger") %>%
-  set_mode("classification")
-
+# 
+# library(rpart)
+# 
+# tree_mod <- rand_forest(mtry=tune(),
+#                         min_n=tune(),
+#                         trees=500) %>%
+#   set_engine("ranger") %>%
+#   set_mode("classification")
+# 
+# # tree_workflow <- workflow() %>%
+# #   add_recipe(target_recipe) %>%
+# #   add_model(tree_mod)
+# 
 # tree_workflow <- workflow() %>%
-#   add_recipe(target_recipe) %>%
+#   add_recipe(pca_recipe) %>%
 #   add_model(tree_mod)
-
-tree_workflow <- workflow() %>%
-  add_recipe(pca_recipe) %>%
-  add_model(tree_mod)
-
-### Grid of values to tune over
-
-tuning_grid <- grid_regular(mtry(range=c(1,9)),
-                            min_n(),
-                            levels=5)
-
-### CV
-
-folds <- vfold_cv(trainData, v = 5, repeats = 1)
-
-CV_results <- tree_workflow %>%
-  tune_grid(resamples=folds,
-            grid=tuning_grid,
-            metrics(metric_set(roc_auc)))
-
-### Find best tuning parameters
-
-bestTune <- CV_results %>%
-  select_best(metric="roc_auc")
-
-### Finalize workflow
-
-final_wf <-
-  tree_workflow %>%
-  finalize_workflow(bestTune) %>%
-  fit(data=trainData)
-
-### Predict
-
-tree_predictions <- final_wf %>%
-  predict(new_data = testData, type="prob")
-
-### Kaggle
-
-tree_kaggle_submission <- tree_predictions %>%
-  bind_cols(., testData) %>%
-  select(id, .pred_1) %>%
-  rename(Action=.pred_1) %>%
-  rename(Id=id)
-
-# vroom_write(x=tree_kaggle_submission, file="./RegTreePreds.csv", delim=',')
-
-vroom_write(x=tree_kaggle_submission, file="./PCARegTreePreds.csv", delim=',')
-
+# 
+# ### Grid of values to tune over
+# 
+# tuning_grid <- grid_regular(mtry(range=c(1,9)),
+#                             min_n(),
+#                             levels=5)
+# 
+# ### CV
+# 
+# folds <- vfold_cv(trainData, v = 5, repeats = 1)
+# 
+# CV_results <- tree_workflow %>%
+#   tune_grid(resamples=folds,
+#             grid=tuning_grid,
+#             metrics(metric_set(roc_auc)))
+# 
+# ### Find best tuning parameters
+# 
+# bestTune <- CV_results %>%
+#   select_best(metric="roc_auc")
+# 
+# ### Finalize workflow
+# 
+# final_wf <-
+#   tree_workflow %>%
+#   finalize_workflow(bestTune) %>%
+#   fit(data=trainData)
+# 
+# ### Predict
+# 
+# tree_predictions <- final_wf %>%
+#   predict(new_data = testData, type="prob")
+# 
+# ### Kaggle
+# 
+# tree_kaggle_submission <- tree_predictions %>%
+#   bind_cols(., testData) %>%
+#   select(id, .pred_1) %>%
+#   rename(Action=.pred_1) %>%
+#   rename(Id=id)
+# 
+# # vroom_write(x=tree_kaggle_submission, file="./RegTreePreds.csv", delim=',')
+# 
+# vroom_write(x=tree_kaggle_submission, file="./PCARegTreePreds.csv", delim=',')
+# 
 #####
 
 ## K-Nearest Neighbors - Score: 0.80905, w/ PCA: 0.80533
 #####
-
-library(kknn)
-
-knn_model <- nearest_neighbor(neighbors=tune()) %>%
-  set_mode("classification") %>%
-  set_engine("kknn")
-
+# 
+# library(kknn)
+# 
+# knn_model <- nearest_neighbor(neighbors=tune()) %>%
+#   set_mode("classification") %>%
+#   set_engine("kknn")
+# 
+# # knn_workflow <- workflow() %>%
+# #   add_recipe(target_recipe) %>%
+# #   add_model(knn_model)
+# 
 # knn_workflow <- workflow() %>%
-#   add_recipe(target_recipe) %>%
+#   add_recipe(pca_recipe) %>%
 #   add_model(knn_model)
-
-knn_workflow <- workflow() %>%
-  add_recipe(pca_recipe) %>%
-  add_model(knn_model)
-
-### Tuning Parameters
-
-tuning_grid <- grid_regular(neighbors())
-
-### CV
-
-folds <- vfold_cv(trainData, v = 5, repeats = 1)
-
-CV_results <- knn_workflow %>%
-  tune_grid(resamples=folds,
-            grid=tuning_grid,
-            metrics(metric_set(roc_auc)))
-
-### Find best K
-
-bestTune <- CV_results %>%
-  select_best(metric="roc_auc")
-
-### Finalize Workflow
-
-final_wf <-
-  knn_workflow %>%
-  finalize_workflow(bestTune) %>%
-  fit(data=trainData)
-
-### Predict
-
-knn_predictions <- final_wf %>%
-  predict(knn_workflow, new_data=testData, type="prob")
-
-### Kaggle
-
-knn_kaggle_submission <- knn_predictions %>%
-  bind_cols(., testData) %>%
-  select(id, .pred_1) %>%
-  rename(Action=.pred_1) %>%
-  rename(Id=id)
-
-# vroom_write(x=knn_kaggle_submission, file="./KNNTreePreds.csv", delim=',')
-
-vroom_write(x=knn_kaggle_submission, file="./PCAKNNPreds.csv", delim=',')
-
+# 
+# ### Tuning Parameters
+# 
+# tuning_grid <- grid_regular(neighbors())
+# 
+# ### CV
+# 
+# folds <- vfold_cv(trainData, v = 5, repeats = 1)
+# 
+# CV_results <- knn_workflow %>%
+#   tune_grid(resamples=folds,
+#             grid=tuning_grid,
+#             metrics(metric_set(roc_auc)))
+# 
+# ### Find best K
+# 
+# bestTune <- CV_results %>%
+#   select_best(metric="roc_auc")
+# 
+# ### Finalize Workflow
+# 
+# final_wf <-
+#   knn_workflow %>%
+#   finalize_workflow(bestTune) %>%
+#   fit(data=trainData)
+# 
+# ### Predict
+# 
+# knn_predictions <- final_wf %>%
+#   predict(knn_workflow, new_data=testData, type="prob")
+# 
+# ### Kaggle
+# 
+# knn_kaggle_submission <- knn_predictions %>%
+#   bind_cols(., testData) %>%
+#   select(id, .pred_1) %>%
+#   rename(Action=.pred_1) %>%
+#   rename(Id=id)
+# 
+# # vroom_write(x=knn_kaggle_submission, file="./KNNTreePreds.csv", delim=',')
+# 
+# vroom_write(x=knn_kaggle_submission, file="./PCAKNNPreds.csv", delim=',')
+# 
 #####
 
 ## Naive Bayes - Score: 0.75864 
@@ -355,67 +355,158 @@ vroom_write(x=knn_kaggle_submission, file="./PCAKNNPreds.csv", delim=',')
 #####
 
 ## Trying an MLP (Neural Networks)
+#####
+# 
+# ### Installing Packages
+# 
+# install.packages("remotes")
+# remotes::install_github("rstudio/tensorflow")
+# 
+# reticulate::install_python()
+# 
+# keras::install_keras()
+# 
+# ### New Recipe
+# 
+# nn_recipe <- recipe(ACTION ~ ., data = trainData) %>%
+#   update_role(MGR_ID, new_role="id") %>%
+#   step_mutate_at(all_numeric_predictors(), fn = factor) %>% 
+#   step_other(all_factor_predictors(), threshold = 0.001) %>%
+#   step_lencode_mixed(all_factor_predictors(), outcome = vars(ACTION)) %>%
+#   step_normalize(all_factor_predictors()) %>%
+#   step_range(all_numeric_predictors(), min=0, max=1)
+# 
+# nn_prep <- prep(nn_recipe)
+# bake(nn_prep, new_data = trainData)
+# 
+# ### Neural Network Model
+# 
+# nn_model <- mlp(hidden_units = tune(),
+#                 epochs = 50) %>%
+#   set_engine("keras") %>%
+#   set_mode("classification")
+# 
+# nn_workflow <- workflow() %>%
+#   add_recipe(nn_recipe) %>%
+#   add_model(nn_model)
+# 
+# ### Tuning
+# 
+# nn_tuneGrid <- grid_regular(hidden_units(range=c(1, 50)),
+#                             levels=5)
+# 
+# folds <- vfold_cv(trainData, v = 5, repeats = 1)
+# 
+# CV_results <- nn_workflow %>%
+#   tune_grid(resamples=folds,
+#             grid=nn_tuneGrid,
+#             metrics(metric_set(roc_auc)))
+# 
+# bestTune <- CV_results %>%
+#   select_best(metric="roc_auc")
+# 
+# final_wf <-
+#   nn_workflow %>%
+#   finalize_workflow(bestTune) %>%
+#   fit(data=trainData)
+# 
+# ### Predict
+# 
+# nn_predictions <- final_wf %>%
+#   predict(nn_workflow, new_data=testData, type="prob")
+# 
+# ### Graph of CV
+# 
+# CV_results %>% collect_metrics() %>%
+#   filter(.metric=="roc_auc") %>%
+#   ggplot(aes(x=hidden_units, y=mean)) + geom_line()
+#
+#####
 
-### Installing Packages
+## Support Vector Machines - Best Score - Radial: 0.61423
 
-install.packages("remotes")
-remotes::install_github("rstudio/tensorflow")
+library(kernlab)
 
-reticulate::install_python()
+### Linear - Score: 0.56039
+#####
 
-keras::install_keras()
+svmLinear <- svm_linear(cost = 0.0131) %>%
+  set_mode("classification") %>%
+  set_engine("kernlab")
 
-### New Recipe
-
-nn_recipe <- recipe(ACTION ~ ., data = trainData) %>%
-  update_role(MGR_ID, new_role="id") %>%
-  step_mutate_at(all_numeric_predictors(), fn = factor) %>% 
-  step_other(all_factor_predictors(), threshold = 0.001) %>%
-  step_lencode_mixed(all_factor_predictors(), outcome = vars(ACTION)) %>%
-  step_normalize(all_factor_predictors()) %>%
-  step_range(all_numeric_predictors(), min=0, max=1)
-
-nn_prep <- prep(nn_recipe)
-bake(nn_prep, new_data = trainData)
-
-### Neural Network Model
-
-nn_model <- mlp(hidden_units = tune(),
-                epochs = 50) %>%
-  set_engine("keras") %>%
-  set_mode("classification")
-
-nn_workflow <- workflow() %>%
-  add_recipe(nn_recipe) %>%
-  add_model(nn_model)
-
-### Tuning
-
-nn_tuneGrid <- grid_regular(hidden_units(range=c(1, 50)),
-                            levels=5)
-
-folds <- vfold_cv(trainData, v = 5, repeats = 1)
-
-CV_results <- nn_workflow %>%
-  tune_grid(resamples=folds,
-            grid=nn_tuneGrid,
-            metrics(metric_set(roc_auc)))
-
-bestTune <- CV_results %>%
-  select_best(metric="roc_auc")
-
-final_wf <-
-  nn_workflow %>%
-  finalize_workflow(bestTune) %>%
+linear_workflow <- workflow() %>%
+  add_recipe(pca_recipe) %>%
+  add_model(svmLinear) %>%
   fit(data=trainData)
 
-### Predict
+#### Predict
 
-nn_predictions <- final_wf %>%
-  predict(nn_workflow, new_data=testData, type="prob")
+linear_predictions <- predict(linear_workflow, new_data=testData, type="prob")
 
-### Graph of CV
+#### Kaggle
 
-CV_results %>% collect_metrics() %>%
-  filter(.metric=="roc_auc") %>%
-  ggplot(aes(x=hidden_units, y=mean)) + geom_line()
+linear_kaggle_submission <- linear_predictions %>%
+  bind_cols(., testData) %>%
+  select(id, .pred_1) %>%
+  rename(Action=.pred_1) %>%
+  rename(Id=id)
+
+vroom_write(x=linear_kaggle_submission, file="./LinearSVMPreds.csv", delim=',')
+
+#####
+
+### Polynomial - Score: 0.56037
+#####
+
+svmPoly <- svm_poly(degree = 1, cost = 0.0131) %>%
+  set_mode("classification") %>%
+  set_engine("kernlab")
+
+poly_workflow <- workflow() %>%
+  add_recipe(pca_recipe) %>%
+  add_model(svmPoly) %>%
+  fit(data=trainData)
+
+#### Predict
+
+poly_predictions <- predict(poly_workflow, new_data=testData, type="prob")
+
+#### Kaggle
+
+poly_kaggle_submission <- poly_predictions %>%
+  bind_cols(., testData) %>%
+  select(id, .pred_1) %>%
+  rename(Action=.pred_1) %>%
+  rename(Id=id)
+
+vroom_write(x=poly_kaggle_submission, file="./PolySVMPreds.csv", delim=',')
+
+#####
+
+### Radial - Score: 0.61423
+#####
+
+svmRadial <- svm_rbf(rbf_sigma = 0.177, cost = 0.00316) %>%
+  set_mode("classification") %>%
+  set_engine("kernlab")
+
+rad_workflow <- workflow() %>%
+  add_recipe(pca_recipe) %>%
+  add_model(svmRadial) %>%
+  fit(data=trainData)
+
+#### Predict
+
+rad_predictions <- predict(rad_workflow, new_data=testData, type="prob")
+
+#### Kaggle
+
+rad_kaggle_submission <- rad_predictions %>%
+  bind_cols(., testData) %>%
+  select(id, .pred_1) %>%
+  rename(Action=.pred_1) %>%
+  rename(Id=id)
+
+vroom_write(x=rad_kaggle_submission, file="./RadialSVMPreds.csv", delim=',')
+
+#####
