@@ -49,7 +49,7 @@ testData <- vroom('test.csv')
 #####
 #
 # target_recipe <- recipe(ACTION ~ ., data = trainData) %>%
-#   step_mutate_at(all_numeric_predictors(), fn = factor) %>% 
+#   step_mutate_at(all_numeric_predictors(), fn = factor) %>%
 #   step_other(all_factor_predictors(), threshold = 0.001) %>%
 #   step_lencode_mixed(all_factor_predictors(), outcome = vars(ACTION)) %>%
 #   step_normalize(all_factor_predictors())
@@ -75,17 +75,33 @@ testData <- vroom('test.csv')
 #####
 
 ## Recipe with SMOTE
+#####
+#
+# library(themis)
+# 
+# smote_recipe <- recipe(ACTION ~ ., data = trainData) %>%
+#   step_mutate_at(all_numeric_predictors(), fn = factor) %>%
+#   step_other(all_factor_predictors(), threshold = 0.001) %>%
+#   step_dummy(all_factor_predictors()) %>%
+#   step_smote(all_outcomes(), neighbors=10)
+# 
+# smote_prep <- prep(smote_recipe)
+# bake(smote_prep, new_data = trainData)
+#
+#####
 
-library(themis)
-
-smote_recipe <- recipe(ACTION ~ ., data = trainData) %>%
+## Different Target Recipe
+#####
+#
+new_recipe <- recipe(ACTION ~ ., data = trainData) %>%
   step_mutate_at(all_numeric_predictors(), fn = factor) %>%
-  step_other(all_factor_predictors(), threshold = 0.001) %>%
-  step_dummy(all_factor_predictors()) %>%
-  step_smote(all_outcomes(), neighbors=10)
+  step_lencode_mixed(all_factor_predictors(), outcome = vars(ACTION)) %>%
+  step_normalize(all_factor_predictors())
 
-smote_prep <- prep(smote_recipe)
-bake(smote_prep, new_data = trainData)
+new_prep <- prep(new_recipe)
+bake(new_prep, new_data = trainData)
+#
+#####
 
 ## Logistic Regression Model - Score: 0.80913, w/ PCA: 0.77040
 #####
@@ -186,14 +202,27 @@ bake(smote_prep, new_data = trainData)
 #
 #####
 
-## Regression Trees - Score: 0.87309, w/ PCA: 0.84514, w/ SMOTE: 0.81990
+## Regression Trees - Score: 0.87309, w/ PCA: 0.84514, w/ SMOTE: 0.81990,
+# w/ Tree Tuning: 0.87450, w/ Different Encoding & Trees: 0.88605
 #####
 
 library(rpart)
 
+# tree_mod <- rand_forest(mtry=tune(),
+#                         min_n=tune(),
+#                         trees=500 %>%
+#   set_engine("ranger") %>%
+#   set_mode("classification")
+
+# tree_mod <- rand_forest(mtry=tune(),
+#                         min_n=tune(),
+#                         trees=tune()) %>%
+#   set_engine("ranger") %>%
+#   set_mode("classification")
+
 tree_mod <- rand_forest(mtry=tune(),
                         min_n=tune(),
-                        trees=500) %>%
+                        trees=100) %>%
   set_engine("ranger") %>%
   set_mode("classification")
 
@@ -205,8 +234,12 @@ tree_mod <- rand_forest(mtry=tune(),
 #   add_recipe(pca_recipe) %>%
 #   add_model(tree_mod)
 
+# tree_workflow <- workflow() %>%
+#   add_recipe(smote_recipe) %>%
+#   add_model(tree_mod)
+
 tree_workflow <- workflow() %>%
-  add_recipe(smote_recipe) %>%
+  add_recipe(new_recipe) %>%
   add_model(tree_mod)
 
 ### Grid of values to tune over
@@ -215,6 +248,11 @@ tuning_grid <- grid_regular(mtry(range=c(1,9)),
                             min_n(),
                             levels=5)
 
+# tuning_grid <- grid_regular(mtry(range=c(1,9)),
+#                             min_n(),
+#                             trees(range=c(100,1000)),
+#                             levels=5)
+
 ### CV
 
 folds <- vfold_cv(trainData, v = 5, repeats = 1)
@@ -222,7 +260,7 @@ folds <- vfold_cv(trainData, v = 5, repeats = 1)
 CV_results <- tree_workflow %>%
   tune_grid(resamples=folds,
             grid=tuning_grid,
-            metrics(metric_set(roc_auc)))
+            metrics=(metric_set(roc_auc)))
 
 ### Find best tuning parameters
 
@@ -253,7 +291,11 @@ tree_kaggle_submission <- tree_predictions %>%
 
 # vroom_write(x=tree_kaggle_submission, file="./PCARegTreePreds.csv", delim=',')
 
-vroom_write(x=tree_kaggle_submission, file="./SMOTERegTreePreds.csv", delim=',')
+# vroom_write(x=tree_kaggle_submission, file="./SMOTERegTreePreds.csv", delim=',')
+
+# vroom_write(x=tree_kaggle_submission, file="./TuneRegTreePreds.csv", delim=',')
+
+vroom_write(x=tree_kaggle_submission, file="./NewRegTreePreds.csv", delim=',')
 
 #####
 
